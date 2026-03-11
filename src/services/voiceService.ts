@@ -60,31 +60,44 @@ export class VoiceService {
     return this.recognition !== null;
   }
 
-  startListening(): Promise<VoiceRecognitionResult> {
-    return new Promise((resolve, reject) => {
-      if (!this.recognition) {
-        reject(new Error('Speech recognition is not supported in this browser'));
-        return;
+  async startListening(retries = 3): Promise<VoiceRecognitionResult> {
+    try {
+      return await new Promise<VoiceRecognitionResult>((resolve, reject) => {
+        if (!this.recognition) {
+          reject(new Error('Speech recognition is not supported in this browser'));
+          return;
+        }
+
+        this.recognition.continuous = false;
+        this.recognition.interimResults = false;
+        this.recognition.lang = 'en-US';
+
+        this.recognition.onresult = (event: SpeechRecognitionEvent) => {
+          const result = event.results[0][0];
+          resolve({
+            transcript: result.transcript,
+            confidence: result.confidence
+          });
+        };
+
+        this.recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+          reject(new Error(event.error));
+        };
+
+        this.recognition.start();
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      if (errorMessage === 'network' && retries > 0) {
+        console.warn(`Speech recognition network error. Retrying... (${retries} attempts left)`);
+        // Wait 1 second before retrying
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return this.startListening(retries - 1);
       }
 
-      this.recognition.continuous = false;
-      this.recognition.interimResults = false;
-      this.recognition.lang = 'en-US';
-
-      this.recognition.onresult = (event: SpeechRecognitionEvent) => {
-        const result = event.results[0][0];
-        resolve({
-          transcript: result.transcript,
-          confidence: result.confidence
-        });
-      };
-
-      this.recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-        reject(new Error(`Speech recognition error: ${event.error}`));
-      };
-
-      this.recognition.start();
-    });
+      throw new Error(`Speech recognition error: ${errorMessage}`);
+    }
   }
 
   stopListening(): void {
